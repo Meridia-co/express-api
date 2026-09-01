@@ -14,10 +14,27 @@ export default class ModelPG extends Core {
      * @public @method constructor
      * @description Base method when instantiating class
      */
-    constructor(globals, dbname, table, params) {
+    constructor(globals, dbname, table, params, serviceName = 'postgres') {
         super(globals);
-        this.dbname = dbname;
-        this.table = table;
+        this.dbname = '';
+        this.table = '';
+        this.idCol = '';
+        this.createdCol = '';
+        this.updatedCol = '';
+        this.deleteCol = '';
+        this.serviceName = serviceName;
+        this.init(dbname, table, params);
+    }
+    /**
+     * @public @method init
+     * @description Initialize the model
+     * @param {String} dbname The database name
+     * @param {String} table The table name
+     * @param {Object} params Optional column configuration
+     */
+    init(dbname, table, params) {
+        this.dbname = dbname || '';
+        this.table = table || '';
         this.softDelete = params?.softDelete;
         this.idCol = params?.idCol || 'id';
         this.createdCol = params?.createdCol || 'created';
@@ -29,7 +46,7 @@ export default class ModelPG extends Core {
      * @desciption Get the services available to the system via the database
      * @return {Client} The PG Client via node-pg
      */
-    get db() { return this.$services['postgres:' + this.dbname]; }
+    get db() { return this.$services[this.serviceName + ':' + this.dbname]; }
     /**
      * @public notSoftDeleted
      * @desciption Get insertable for soft delete check

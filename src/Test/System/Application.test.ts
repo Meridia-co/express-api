@@ -370,6 +370,38 @@ describe('Application', () => {
 			expect(result.status || result.statusCode).toBe(404);
 		});
 
+		it('should return 200 for browser CORS OPTIONS on unmatched routes', async () => {
+			const app = new Application({
+				method: 'OPTIONS',
+				url: '/nonexistent',
+				headers: { Origin: 'http://localhost', 'sec-fetch-mode': 'cors' },
+				body: {},
+				query: {},
+				clientIp: '127.0.0.1'
+			}, 'express');
+
+			const result = await app.run();
+
+			expect(result).toBeDefined();
+			expect(result.status || result.statusCode).toBe(200);
+			expect(result.body).toBe('{}');
+		});
+
+		it('should still return 404 for OPTIONS without browser CORS mode', async () => {
+			const app = new Application({
+				method: 'OPTIONS',
+				url: '/nonexistent',
+				headers: { Origin: 'http://localhost' },
+				body: {},
+				query: {},
+				clientIp: '127.0.0.1'
+			}, 'express');
+
+			const result = await app.run();
+
+			expect(result.status || result.statusCode).toBe(404);
+		});
+
 		it('should set socket and io from request', async () => {
 			const mockSocket = { id: 'socket123' };
 			const mockIo = { emit: jest.fn() };
@@ -414,6 +446,28 @@ describe('Application', () => {
 			await app.run();
 
 			expect(mockStart).toHaveBeenCalled();
+		});
+
+		it('should return 503 and run end middleware when start middleware fails', async () => {
+			const app = new Application({
+				method: 'GET',
+				url: '/nonexistent',
+				headers: { Origin: 'http://localhost' },
+				body: {},
+				query: {},
+				clientIp: '127.0.0.1'
+			}, 'express');
+
+			const mockStart = jest.fn<() => Promise<any[]>>().mockRejectedValue(new Error('DB unavailable'));
+			const mockEnd = jest.fn<() => Promise<void>>().mockResolvedValue(undefined);
+			app.middlewareInit({ start: mockStart } as any);
+			app.middlewareEnd({ end: mockEnd } as any);
+
+			const result = await app.run();
+
+			expect(mockStart).toHaveBeenCalled();
+			expect(mockEnd).toHaveBeenCalled();
+			expect(result.status || result.statusCode).toBe(503);
 		});
 
 		it('should run end middleware after 404', async () => {

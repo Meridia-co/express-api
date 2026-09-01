@@ -16,7 +16,8 @@ import { GetCommand, PutCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
  */
 export default class ModelDynamo<T extends GlobalsType> extends Core<T> {
 
-	public dbname: string;
+	public dbname: string = '';
+	public serviceName: string;
 	public params: {
 		TableName: string;
 		KeySchema: Array<{ AttributeName: string; KeyType: 'HASH' | 'RANGE' }>;
@@ -26,36 +27,40 @@ export default class ModelDynamo<T extends GlobalsType> extends Core<T> {
 			WriteCapacityUnits: number;
 		};
 		[key: string]: any;
+	} = {
+		TableName: '',
+		KeySchema: [{ AttributeName: 'id', KeyType: 'HASH' as const }],
+		AttributeDefinitions: [{ AttributeName: 'id', AttributeType: 'S' as const }],
+		ProvisionedThroughput: { ReadCapacityUnits: 10, WriteCapacityUnits: 10 }
 	};
 
 	/**
 	 * @public @method constructor
 	 * @description Base method when instantiating class
 	 */
-	constructor(globals: T, dbname: string, table: string, params?: any) {
+	constructor(globals: T, dbname?: string, table?: string, params?: any, serviceName = 'dynamo') {
 		super(globals);
-		
-		if (!table) throw new ModelError('table is required in params for dynamo db connection');
 
-		this.dbname = dbname;
+		this.serviceName = serviceName;
+		this.init(dbname, table, params);
+	}
+
+	/**
+	 * @public @method init
+	 * @description Initialize the model
+	 * @param {String} dbname The database name
+	 * @param {String} table The table name
+	 * @param {Object} params Optional DynamoDB table configuration overrides
+	 */
+	init(dbname?: string, table?: string, params?: any) {
+		if (dbname && !table) throw new ModelError('table is required in params for dynamo db connection');
+
+		this.dbname = dbname || '';
 		this.params = { ...{
-			TableName: table,
-			KeySchema: [
-				{
-					AttributeName: "id",
-					KeyType: "HASH" as const
-				}
-			],
-			AttributeDefinitions: [
-				{
-					AttributeName: "id",
-					AttributeType: "S" as const
-				}
-			],
-			ProvisionedThroughput: {
-				ReadCapacityUnits: 10,
-				WriteCapacityUnits: 10
-			}
+			TableName: table || '',
+			KeySchema: [{ AttributeName: 'id', KeyType: 'HASH' as const }],
+			AttributeDefinitions: [{ AttributeName: 'id', AttributeType: 'S' as const }],
+			ProvisionedThroughput: { ReadCapacityUnits: 10, WriteCapacityUnits: 10 }
 		}, ...(params || {})};
 	}
 
@@ -64,14 +69,14 @@ export default class ModelDynamo<T extends GlobalsType> extends Core<T> {
 	 * @desciption Get the services available to the system
 	 * @return {any} Dynamo service
 	 */
-	get dynamo(): any { return (this.$services as any)['dynamo:' + this.dbname].dynamo }
+	get dynamo(): any { return (this.$services as any)[this.serviceName + ':' + this.dbname].dynamo }
 
 	/**
 	 * @public @get db
 	 * @desciption Get the services available to the system
 	 * @return {any} DynamoDB client
 	 */
-	get db(): any { return (this.$services as any)['dynamo:' + this.dbname].client }
+	get db(): any { return (this.$services as any)[this.serviceName + ':' + this.dbname].client }
 
 	/**
 	 * @public @method create

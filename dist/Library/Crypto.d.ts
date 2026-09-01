@@ -1,6 +1,7 @@
 /**
  * @module express-api/Library/Crypto
  * @class Crypto
+ * @deprecated Use CryptoTools instead
  * @description Common resource element, functional only, providing crypto functionality
  * @author Paul Smith (ulsmith) <paul.smith@ulsmith.net>
  * @license MIT

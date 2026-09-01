@@ -17,6 +17,8 @@ export default class Application {
         this._middleware = { start: [], mount: [], in: [], out: [], end: [] };
         this._controller = {};
         this._types = ['aws', 'azure', 'express', 'socket'];
+        this._path = '';
+        this._method = '';
         if (this._types.indexOf(type) < 0)
             throw Error('Type does not exist, please add a type of request [' + this._types.join(', ') + ']');
         this._type = type;
@@ -102,15 +104,36 @@ export default class Application {
         let request = new Request(this.globals, this._type, this.request);
         let requests = request.requests || [request];
         // run middleware before anything mounted or checked
-        requests = await this._middleware.start.reduce((p, mw) => p.then((r) => mw.start(r)), Promise.resolve(requests));
+        try {
+            requests = await this._middleware.start.reduce((p, mw) => p.then((r) => mw.start(r)), Promise.resolve(requests));
+        }
+        catch (error) {
+            console.error('Middleware start failed:', error);
+            return Promise.resolve((new Response(this._type, {
+                status: 503,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Access-Control-Allow-Origin': this.request && this.request.headers && this.request.headers.Origin ? this.request.headers.Origin : '*',
+                    'Access-Control-Allow-Credentials': 'true',
+                    'Access-Control-Allow-Headers': 'Accept, Cache-Control, Content-Type, Content-Length, Authorization, Pragma, Expires',
+                    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS, PATCH',
+                    'Access-Control-Expose-Headers': 'Cache-Control, Content-Type, Authorization, Pragma, Expires'
+                },
+                body: { message: 'Service unavailable', detail: error.message || 'Middleware start failed' }
+            })).get()).then((res) => this._middleware.end.reduce((p, mw) => p.then((r) => mw.end(r)), Promise.resolve()).then(() => res));
+        }
         if (this.request.socket)
             this.globals.$socket = this.request.socket;
         if (this.request.io)
             this.globals.$io = this.request.io;
         for (const request of requests) {
             if (!request.resource || !request.resource.path) {
+                // options requests from browsers should always respond a 200 or they cors error and hide issues
+                const method = request.method.toLowerCase();
+                const secFetchMode = (request.headers?.['sec-fetch-mode'] || request.headers?.['Sec-Fetch-Mode'] || '').toLowerCase();
+                const isCorsOptions = method === 'options' && secFetchMode === 'cors';
                 return Promise.resolve((new Response(this._type, {
-                    status: 404,
+                    status: isCorsOptions ? 200 : 404,
                     headers: {
                         'Content-Type': 'application/json',
                         'Access-Control-Allow-Origin': request && request.headers && request.headers.Origin ? request.headers.Origin : '*',
@@ -119,7 +142,7 @@ export default class Application {
                         'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS, PATCH',
                         'Access-Control-Expose-Headers': 'Cache-Control, Content-Type, Authorization, Pragma, Expires'
                     },
-                    body: `404 Not Found [${request.path}]`
+                    body: isCorsOptions ? {} : `404 Not Found [${request.path}]`
                 })).get()).then((res) => this._middleware.end.reduce((p, mw) => p.then((r) => mw.end(r)), Promise.resolve()).then(() => res)); // make sure we end any started middleware on failure
             }
             // process requests
@@ -164,6 +187,9 @@ export default class Application {
                 path += resourcePath[i].replace(/\b[a-z]/g, (char) => { return char.toUpperCase(); }).replace(/_|-|\s/g, '') + '/';
             }
             path = path.substring(0, path.length - 1) + '.js';
+            // set path and method for later use
+            this._path = path;
+            this._method = req.method;
             try {
                 this._controller[name] = (this.globals.$handler?.type === 'es-module' ? Object.values(await import(this._controllerDir.replace(/(\/)+$/, '') + '/' + path))[0] : require(this._controllerDir.replace(/(\/)+$/, '') + '/' + path));
                 req.access = this._controller[name][req.method] || {};
@@ -215,28 +241,34 @@ export default class Application {
                     body: `405 Method not allowed [${req.method}] for [${req.path}]`
                 })).get());
             }
+            // make controller class available on client global
+            this.globals.$client.controller = this._controller[name];
             // run middleware after mount of controller but before running it
             req = await this._middleware.in.reduce((p, mw) => p.then((r) => mw.in(r)), Promise.resolve(req));
             // run controller
             return (new this._controller[name](this.globals))[req.method](req);
         })
-            // handle response
-            .then((out) => new Response(this._type, {
+            // handle response as generic object
+            .then((out) => ({
             isBase64Encoded: out && out.isBase64Encoded,
+            path: this._path || '',
+            method: this._method || '',
             status: out && out.body && out.status ? out.status : 200,
             headers: { ...{ 'Content-Type': 'application/json', 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }, ...(out && out.body && out.headers ? out.headers : {}) },
-            body: out && out.body && out.status ? out.body : (out ? out : null)
+            body: out && out.body && out.status ? out.body : (out ? out : null),
         }))
             .catch((error) => {
             // catch any other errors, log errors to console
             if (!error.exception)
                 console.warn(error.message, JSON.stringify(error.stack));
             // other errors like model, service etc (custom)
-            return new Response(this._type, {
+            return {
+                path: 'unknown',
+                method: 'unknown',
                 status: ['error', 'typeerror'].includes(error.name.toLowerCase()) ? 500 : error.status || 400,
                 headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
                 body: error.name.toLowerCase() === 'resterror' ? error.message : (['error', 'typeerror'].includes(error.name.toLowerCase()) ? 'internal error' : error)
-            });
+            };
         })
             // outgoing middleware, run synchronously as each one impacts on the next
             .then((response) => this._middleware.out.reduce((p, mw) => p.then((r) => mw.out(r)), Promise.resolve(response)))
@@ -246,12 +278,16 @@ export default class Application {
             if (!error.exception)
                 console.warn(error.message, JSON.stringify(error.stack));
             // other errors like model, service etc (custom)
-            return new Response(this._type, {
+            return {
+                path: 'unknown',
+                method: 'unknown',
                 status: error.name.toLowerCase() === 'error' ? 500 : error.status || 400,
                 headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
                 body: error.name.toLowerCase() === 'resterror' ? error.message : (error.name.toLowerCase() === 'error' ? 'system error' : error)
-            });
-        });
+            };
+        })
+            // convert to Response only at the end, after middleware has processed the generic object
+            .then((out) => new Response(this._type, out));
     }
 }
 //# sourceMappingURL=Application.js.map

@@ -10,6 +10,7 @@ import { GlobalsType } from '../../Types/System.js';
  */
 export default class ModelDynamo<T extends GlobalsType> extends Core<T> {
     dbname: string;
+    serviceName: string;
     params: {
         TableName: string;
         KeySchema: Array<{
@@ -30,7 +31,15 @@ export default class ModelDynamo<T extends GlobalsType> extends Core<T> {
      * @public @method constructor
      * @description Base method when instantiating class
      */
-    constructor(globals: T, dbname: string, table: string, params?: any);
+    constructor(globals: T, dbname?: string, table?: string, params?: any, serviceName?: string);
+    /**
+     * @public @method init
+     * @description Initialize the model
+     * @param {String} dbname The database name
+     * @param {String} table The table name
+     * @param {Object} params Optional DynamoDB table configuration overrides
+     */
+    init(dbname?: string, table?: string, params?: any): void;
     /**
      * @public @get dynamo
      * @desciption Get the services available to the system

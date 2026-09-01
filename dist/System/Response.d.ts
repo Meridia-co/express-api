@@ -6,17 +6,23 @@
  * @license MIT
  */
 export default class Response<T extends {
+    path?: string;
+    method?: string;
     headers: {
         [key: string]: string | string[] | undefined;
     };
     body: any;
 } = {
+    path?: string;
+    method?: string;
     headers: {
         [key: string]: string | string[] | undefined;
     };
     body: any;
 }> {
     type: 'aws' | 'azure' | 'express' | 'socket';
+    path: string;
+    method: string;
     status: number;
     headers: T['headers'];
     body: T['body'];

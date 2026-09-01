@@ -14,10 +14,26 @@ export default class ModelMysql extends Core {
      * @public @method constructor
      * @description Base method when instantiating class
      */
-    constructor(globals, dbname, table, params) {
+    constructor(globals, dbname, table, params, serviceName = 'mysql') {
         super(globals);
-        this.dbname = !table ? this.$environment?.MYSQL_DATABASE || dbname : dbname;
-        this.table = !table ? dbname : table;
+        this.dbname = '';
+        this.table = '';
+        this.idCol = '';
+        this.createdCol = '';
+        this.updatedCol = '';
+        this.deleteCol = '';
+        this.serviceName = serviceName;
+        this.init(dbname, table, params);
+    }
+    /**
+     * @public @method init
+     * @description Initialize the model
+     * @param {Object} params The parameters to initialize the model with
+     * @return {Promise} a resulting promise of data or error on failure
+     */
+    init(dbname, table, params) {
+        this.dbname = !table ? this.$environment?.MYSQL_DATABASE || dbname || '' : dbname || '';
+        this.table = !table ? dbname || '' : table || '';
         this.softDelete = params?.softDelete;
         this.idCol = params?.idCol || 'id';
         this.createdCol = params?.createdCol || 'created';
@@ -29,7 +45,12 @@ export default class ModelMysql extends Core {
      * @desciption Get the services available to the system
      * @return {any} MySQL connection
      */
-    get db() { return this.$services['mysql:' + this.dbname].con; }
+    get db() {
+        const connection = this.$services[this.serviceName + ':' + this.dbname].con;
+        if (!connection)
+            throw new ModelError(`MySQL connection is not available for service [${this.serviceName}:${this.dbname}]`);
+        return connection;
+    }
     /**
      * @public notSoftDeleted
      * @desciption Get insertable for soft delete check
@@ -150,8 +171,8 @@ export default class ModelMysql extends Core {
     delete(id, type) {
         // soft delete off and not explicitly soft, or explicitly hard
         if ((!this.softDelete && type !== 'soft') || type === 'hard')
-            return this.db.query(`DELETE FROM ${this.inject(this.table)} WHERE id = ?;`, [id]);
-        return this.db.query(`UPDATE ${this.inject(this.table)} SET ${this.inject(this.deleteCol)} = ? WHERE ${this.inject(this.idCol)} = ?;`, [new Date(), id]);
+            return this.db.query(`DELETE FROM ${this.inject(this.table)} WHERE id = ?;`, [id]).then(() => undefined);
+        return this.db.query(`UPDATE ${this.inject(this.table)} SET ${this.inject(this.deleteCol)} = ? WHERE ${this.inject(this.idCol)} = ?;`, [new Date(), id]).then(() => undefined);
     }
     /**
      * @public @method restore
@@ -160,7 +181,7 @@ export default class ModelMysql extends Core {
      * @return {Promise} a resulting promise of data or error on failure
      */
     restore(id) {
-        return this.db.query(`UPDATE ${this.inject(this.table)} SET ${this.inject(this.deleteCol)} = ? WHERE ${this.inject(this.idCol)} = ?;`, [null, id]);
+        return this.db.query(`UPDATE ${this.inject(this.table)} SET ${this.inject(this.deleteCol)} = ? WHERE ${this.inject(this.idCol)} = ?;`, [null, id]).then(() => undefined);
     }
     /**
      * @public @method queryWhere
